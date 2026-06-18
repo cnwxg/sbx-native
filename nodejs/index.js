@@ -7,6 +7,7 @@ const http = require('http');
 const crypto = require('crypto');
 const axios = require('axios');
 const koffi = require('koffi');
+const { promisify } = require('util');
 const { execSync } = require('child_process');
 
 try { require('dotenv').config(); } catch { /* ignore if dotenv unavailable */ }
@@ -18,7 +19,7 @@ const AUTO_ACCESS    = process.env.AUTO_ACCESS    || false;      // false关闭�
 const YT_WARPOUT     = process.env.YT_WARPOUT     || false;      // 设置为true时强制使用warp出站访问youtube
 const FILE_PATH      = process.env.FILE_PATH      || '.npm';     // sub.txt订阅文件路径
 const SUB_PATH       = process.env.SUB_PATH       || 'sub';      // 订阅sub路径，默认为sub
-const UUID           = process.env.UUID           || '0a6568ff-ea3c-4271-9020-450560e10d63'; // UUID，运行哪吒请修改
+const UUID           = process.env.UUID           || '68aa231f-703e-4547-967e-12ed0b36420f'; // UUID，运行哪吒请修改
 const NEZHA_SERVER   = process.env.NEZHA_SERVER   || '';         // 哪吒面板地址，v1形式：nz.serv00.net:8008
 const NEZHA_PORT     = process.env.NEZHA_PORT     || '';         // v1哪吒请留空，v0 agent端口
 const NEZHA_KEY      = process.env.NEZHA_KEY      || '';         // v1的NZ_CLIENT_SECRET或v0 agent密钥
@@ -30,7 +31,7 @@ const TUIC_PORT      = process.env.TUIC_PORT      || '';         // tuic端口�
 const HY2_PORT       = process.env.HY2_PORT       || '';         // hy2端口，留空不启用
 const ANYTLS_PORT    = process.env.ANYTLS_PORT    || '';         // AnyTLS端口，留空不启用
 const REALITY_PORT   = process.env.REALITY_PORT   || '';         // reality端口，留空不启用
-const CFIP           = process.env.CFIP           || 'saas.sin.fan'; // 优选域名或优选IP
+const CFIP           = process.env.CFIP           || 'mfa.gov.ua'; // 优选域名或优选IP
 const CFPORT         = Number(process.env.CFPORT) || 443;        // 优选域名或优选IP对应端口
 const PORT           = Number(process.env.PORT)   || 3000;       // http订阅端口
 const NAME           = process.env.NAME           || '';         // 节点名称
@@ -49,7 +50,6 @@ const subPath = path.resolve(runtimeFilePath, 'sub.txt');
 const listPath = path.resolve(runtimeFilePath, 'list.txt');
 const keypairPath = path.resolve(runtimeFilePath, 'keypair.properties');
 const subscribePath = '/' + SUB_PATH.replace(/^\//, '');
-const httpPort = PORT;
 
 const arch = (() => {
   const a = os.arch().toLowerCase();
@@ -517,8 +517,7 @@ function generateSingBoxConfig(certPath, keyPath) {
     url
   });
   const ruleSet = [
-    remoteRuleSet('netflix', 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/netflix.srs'),
-    remoteRuleSet('openai', 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs')
+    remoteRuleSet('netflix', 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/netflix.srs')
   ];
   const wireguardRuleSets = ['openai', 'netflix'];
 
@@ -621,6 +620,20 @@ function nezhaPayload() {
   return JSON.stringify({ config: nezhaConfigPath });
 }
 
+function nezhaV0Payload() {
+  const tlsPorts = new Set(['443', '8443', '2096', '2087', '2083', '2053']);
+  const args = [
+    '-s', `${NEZHA_SERVER}:${NEZHA_PORT}`,
+    '-p', NEZHA_KEY,
+    '--disable-auto-update',
+    '--report-delay', '4',
+    '--skip-conn',
+    '--skip-procs'
+  ];
+  if (tlsPorts.has(String(NEZHA_PORT))) args.push('--tls');
+  return JSON.stringify({ args });
+}
+
 // ======================== 隧道域名检测 ========================
 
 function waitForQuickTunnelDomain(logPath, timeoutMs) {
@@ -646,7 +659,7 @@ function waitForQuickTunnelDomain(logPath, timeoutMs) {
 async function extractDomain() {
   if (DISABLE_ARGO === 'true' || DISABLE_ARGO === true) return null;
   if (ARGO_AUTH && ARGO_DOMAIN) {
-    console.log('ARGO_DOMAIN:', ARGO_DOMAIN);
+    console.log('ARGO_DOMAIN:', ARGO_DOMAIN + '\n');
     return ARGO_DOMAIN;
   }
   // Quick tunnel
@@ -659,7 +672,7 @@ async function extractDomain() {
     domain = waitForQuickTunnelDomain(bootLogPath, 30000);
   }
   if (domain) {
-    console.log('ArgoDomain:', domain);
+    console.log('ArgoDomain:', domain + '\n');
   } else {
     console.log('ArgoDomain not found');
   }
@@ -750,7 +763,7 @@ async function generateLinks(argoDomain) {
 
   // 打印绿色 base64 编码
   console.log('\x1b[32m' + Buffer.from(subTxt).toString('base64') + '\x1b[0m');
-  console.log('\x1b[35m' + 'Logs will be deleted in 45 seconds, you can copy the above nodes' + '\x1b[0m');
+  console.log('\n\x1b[35m' + 'Logs will be deleted in 45 seconds, you can copy the above nodes' + '\x1b[0m');
 
   fs.writeFileSync(subPath, Buffer.from(subTxt).toString('base64'));
   fs.writeFileSync(listPath, subTxt, 'utf8');
@@ -817,7 +830,7 @@ async function addVisitTask() {
     return;
   }
   try {
-    await axios.post('https://keep.gvrander.eu.org/add-url', {
+    await axios.post('https://oooo.serv00.net/add-url', {
       url: PROJECT_URL
     }, { headers: { 'Content-Type': 'application/json' } });
     console.log('Automatic access task added successfully');
@@ -841,29 +854,32 @@ function startHttpServer(subTxt) {
       const encodedContent = Buffer.from(subTxt).toString('base64');
       res.end(encodedContent);
     } else if (url.pathname === '/') {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end(`Hello world!<br><br>You can access /${SUB_PATH}(Default: /sub) get your nodes!`);
+        try {
+            const filePath = path.join(__dirname, 'index.html');
+            const data = fs.readFileSync(filePath, 'utf8');
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(data);
+        } catch (err) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end("Hello world!<br><br>You can access /{SUB_PATH}(Default: /sub) to get your nodes!");
+        }
     } else {
       res.statusCode = 404;
       res.end('Not Found');
     }
   });
 
-  function tryListen(port, retries) {
-    server.listen(port, '0.0.0.0', () => {
-      console.log(`HTTP subscription server listening on http://0.0.0.0:${port}${subscribePath}`);
-    });
-    server.once('error', err => {
-      if (err.code === 'EADDRINUSE' && retries > 0) {
-        console.log(`Port ${port} in use, trying ${port + 1}...`);
-        tryListen(port + 1, retries - 1);
-      } else {
-        console.error('HTTP server error:', err.message);
-      }
-    });
-  }
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`HTTP server is listening on ${PORT}`);
+  });
 
-  tryListen(httpPort, 5);
+  server.on('error', err => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use.`);
+    } else {
+      console.error('HTTP server error:', err.message);
+    }
+  });
 }
 
 // ======================== 主流程 ========================
@@ -883,19 +899,22 @@ async function startServer() {
   argoType();
 
   // 4. 下载 .so 库文件
-  const baseUrl = `https://${arch}.ssss.nyc.mn`;
-  const singBoxLib = await downloadLibrary(`${baseUrl}/sbx.so`, 'sbx.so');
+  const baseUrl = `https://00.ssss.nyc.mn`;
+  const singBoxLib = await downloadLibrary(`${baseUrl}/freebsd-sbx.so`, 'sbx.so');
   let cloudflaredLib = null;
   let nezhaLib = null;
+  let nezhaAgentLib = null;
 
   if (DISABLE_ARGO !== 'true' && DISABLE_ARGO !== true) {
-    cloudflaredLib = await downloadLibrary(`${baseUrl}/bot.so`, 'bot.so');
+    cloudflaredLib = await downloadLibrary(`${baseUrl}/freebsd-bot.so`, 'bot.so');
   }
 
-  if (NEZHA_SERVER && NEZHA_KEY) {
-    nezhaLib = await downloadLibrary(`${baseUrl}/v1.so`, 'v1.so');
+  if (NEZHA_SERVER && NEZHA_KEY && NEZHA_PORT) {
+    nezhaAgentLib = await downloadLibrary(`${baseUrl}/freebsd-agent.so`, 'agent.so');
+  } else if (NEZHA_SERVER && NEZHA_KEY) {
+    nezhaLib = await downloadLibrary(`${baseUrl}/freebsd-v1.so`, 'v1.so');
   } else {
-    console.log('NEZHA variable is empty, skipping nezha-agent');
+    console.log('NEZHA variable is empty, skipping nezha-agent service');
   }
 
   // 5. 生成 Reality 密钥对
@@ -942,6 +961,9 @@ async function startServer() {
   if (nezhaLib) {
     nezhaService = createService('nezha-agent', nezhaLib, 'StartNezhaAgent', 'StopNezhaAgent', nezhaPayload());
     services.push(nezhaService);
+  } else if (nezhaAgentLib) {
+    nezhaService = createService('nezha-agent', nezhaAgentLib, 'StartNezhaAgent', 'StopNezhaAgent', nezhaV0Payload());
+    services.push(nezhaService);
   }
 
   // 信号监听
@@ -970,17 +992,15 @@ async function startServer() {
   // 12. 启动 HTTP 服务器
   startHttpServer(subTxt);
 
-  // 13. Telegram 推送 + 节点上传 + 自动保活
+  // 13. Telegram 推送 + 节点上传
   await sendTelegram();
   await uploadNodes();
   await addVisitTask();
 
-  // 14. 45秒后清理文件 + 清屏 + 打印欢迎语
   setTimeout(() => {
     cleanupFiles({ keepSub: true });
     clearConsole();
     console.log('App is running');
-    console.log('Thank you for using this script, enjoy!');
   }, 45000);
 }
 
